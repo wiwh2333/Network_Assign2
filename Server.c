@@ -9,6 +9,7 @@
 #include<arpa/inet.h>	//inet_addr
 #include<unistd.h>	//write
 #include<pthread.h> //for threading , link with lpthread
+#include <dirent.h> //For directories
 
 //the thread function
 void *connection_handler(void *);
@@ -29,7 +30,8 @@ int main(int argc , char *argv[])
 	//Prepare the sockaddr_in structure
 	server.sin_family = AF_INET;
 	server.sin_addr.s_addr = INADDR_ANY;
-	server.sin_port = htons( 1500 );
+    //server.sin_addr.s_addr = inet_addr("10.224.76.120");
+	server.sin_port = htons( 8888 );
 	
 	//Bind
 	if( bind(socket_desc,(struct sockaddr *)&server , sizeof(server)) < 0)
@@ -67,6 +69,11 @@ int main(int argc , char *argv[])
 		
 		//Now join the thread , so that we dont terminate before the thread
 		//pthread_join( sniffer_thread , NULL);
+        //Send some messages to the client
+	    
+	
+	    // char *message = "Greetings! I am your connection handler\nNow type something and i shall repeat what you type \n";
+	    // send(client_sock , message , strlen(message),0);
 		puts("Handler assigned");
 	}
 	
@@ -86,23 +93,47 @@ void *connection_handler(void *socket_desc)
 {
 	//Get the socket descriptor
 	int sock = *(int*)socket_desc;
-	int read_size;
-	char *message , client_message[2000];
+	int read_size, length, error =200;
+	char *message , client_message[2000], ret[2000], file_length[20];
+    char *RequestMethod, *RequestURL, *RequestVersion;
+	DIR *dir; FILE *file;
+    struct dirent *entry;
 	
-	//Send some messages to the client
-	message = "Greetings! I am your connection handler\n";
-	write(sock , message , strlen(message));
-	
-	message = "Now type something and i shall repeat what you type \n";
-	write(sock , message , strlen(message));
 	
 	//Receive a message from client
 	while( (read_size = recv(sock , client_message , 2000 , 0)) > 0 )
 	{
 		//Send the message back to client
-		write(sock , client_message , strlen(client_message));
+		//send(sock , client_message , strlen(client_message),0);
+        char *token = strtok(client_message, " \t");
+        RequestMethod = token;
+        token = strtok(NULL, " \t");
+        RequestURL = token;
+        token = strtok(NULL, " \t");
+        RequestVersion = token;
+        token = strtok(NULL, " \t");
+        dir = opendir(RequestURL);
+        if (dir == NULL) {perror ("Can't find directory");}
+        strcat(RequestURL, "/index.html");
+        file = fopen(RequestURL, "rb");
+        fseek(file, 0, SEEK_END); length = ftell(file); fseek(file, 0 , SEEK_SET);
+        message = (char *)malloc(length+1);
+        fread(message, length, 1, file);
+        message[length] = '\0';
+        printf("METHOD: %s, URL %s, VERSION%s\n", RequestMethod, RequestURL, RequestVersion);
+        strcat(RequestVersion, "200 OK\r\n");
+        strcat(RequestVersion, "Content-Type: index.html\r\n");
+        sprintf(file_length, "%d", length);
+        strcat(RequestVersion, "Content-Length: ");
+        strcat(RequestVersion, file_length);
+        strcat(RequestVersion, "\r\n\r\n");
+        strcat(RequestVersion, message);
+        printf("HERE:%s\n", RequestVersion);
+        send(sock , RequestVersion , strlen(RequestVersion),0);
+        
+        
 	}
-	
+
 	if(read_size == 0)
 	{
 		puts("Client disconnected");
