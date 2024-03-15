@@ -14,14 +14,26 @@
 #include <sys/stat.h>  //For stat()
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
+#define DEBUG 1
 //the thread function
 void *connection_handler(void *);
-int check_file_type(FILE *file, int length);
+int check_file_type(FILE *file, char* RequestURL);
 
 int main(int argc , char *argv[])
 {
 	int socket_desc , client_sock , c , *new_sock;
 	struct sockaddr_in server , client;
+	int portno; /* port to listen on */
+
+
+	/* 
+   * check command line arguments 
+   */
+  	if (argc != 2) {
+    	fprintf(stderr, "usage: %s <port>\n", argv[0]);
+    	exit(1);
+  	}
+  	portno = atoi(argv[1]);
 	
 	//Create socket
 	socket_desc = socket(AF_INET , SOCK_STREAM , 0);
@@ -37,7 +49,7 @@ int main(int argc , char *argv[])
 	server.sin_family = AF_INET;
 	server.sin_addr.s_addr = INADDR_ANY;
     //server.sin_addr.s_addr = inet_addr("10.224.76.120");
-	server.sin_port = htons( 8888 );
+	server.sin_port = htons( portno );
 	
 	//Bind
 	if( bind(socket_desc,(struct sockaddr *)&server , sizeof(server)) < 0)
@@ -108,6 +120,7 @@ void *connection_handler(void *socket_desc)
 	struct stat sb;
     struct dirent *entry;
 	char *RequestVersion; 
+	char *ifClose;
 	
 	
 	//Receive a message from client
@@ -115,6 +128,11 @@ void *connection_handler(void *socket_desc)
 	{
 		//Process Client Message
         char *token = strtok(client_message, " \t");
+		ifClose = strstr(client_message, "Close");
+		if (ifClose != NULL){
+			puts("Client Closed Via Request\n");
+			return 0; //EXIT
+		}
         RequestMethod = token;
         token = strtok(NULL, " \t");
         RequestURL = token;
@@ -123,8 +141,9 @@ void *connection_handler(void *socket_desc)
         RequestVersion = token;
 		//strcpy(RequestVersion,token);
 		RequestVersion[8] = '\0';
-        
+        #if DEBUG
 		printf ("WHAT:%s:%s:%s|",RequestMethod,RequestURL,RequestVersion);
+		#endif
 		//Method Check
 		if (strcmp(RequestMethod, "GET") != 0){send(sock , "405 Method Not Allowed\n" , strlen("405 Method Not Allowed\n"),0);connection_handler(&sock);}
 		//Version Check
@@ -132,17 +151,23 @@ void *connection_handler(void *socket_desc)
 		strcpy(FinalVersion, RequestVersion);
 		
 		//Stat
+		#if DEBUG
 		printf("STAT NOT OPEN%s\n", RequestVersion);
+		#endif
 		if (stat(RequestURL, &sb) == 0){
 			if (S_ISDIR(sb.st_mode)){
+				#if DEBUG
 				printf("IS DIR\n");
+				#endif
 				//Open Dir
 				dir = opendir(RequestURL);
         		if (dir == NULL) {send(sock , "400 Bad Request\n" , strlen("400 Bad Request\n"),0); perror ("Can't find directory"); connection_handler(&sock);} 
 				strcat(RequestURL, "/index.html");
 			}
 			else{
+				#if DEBUG
 				printf("IS FILE\n");
+				#endif
 			}
 		}
 		
@@ -177,7 +202,8 @@ void *connection_handler(void *socket_desc)
         fread(message, length, 1, file);
         message[length] = '\0';
 		fseek(file, 0 , SEEK_SET);
-		type = check_file_type(file, length);
+		//CALL check_type
+		type = check_file_type(file, RequestURL);
 		fseek(file, 0 , SEEK_SET);
 		switch(type){
 			case 0:
@@ -269,7 +295,7 @@ void *connection_handler(void *socket_desc)
 	return 0;
 }
 
-int check_file_type(FILE *file, int length){
+int check_file_type(FILE *file, char* RequestURL){
 	char buffer[32];
 	const char *html_signature = "<!DOCTYPE html>";
 	const char *png_signature = "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A"; // PNG file signature
@@ -301,7 +327,19 @@ int check_file_type(FILE *file, int length){
 			return 3; //JPG
 		}
 	else if ( type_check >= strlen(ico_signature) && memcmp(buffer, ico_signature, strlen(ico_signature)) == 0){
-			return 4; //ico
+			if(RequestURL[strlen(RequestURL)-1] =='l'){
+				return 0;
+			}
+			if(RequestURL[strlen(RequestURL)-1] =='t'){
+				return 7;
+			}
+			if(RequestURL[strlen(RequestURL)-1] =='s'){
+				if(RequestURL[strlen(RequestURL)-2] =='s'){
+				return 5;
+			}
+			return 6;
+			}
+			return 4;
 		}
 	else if ( type_check >= strlen(css_signature) && memcmp(buffer, css_signature, strlen(css_signature)) == 0){
 			return 5; //CSS
